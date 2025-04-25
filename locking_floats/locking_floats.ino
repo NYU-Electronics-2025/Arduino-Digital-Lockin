@@ -63,6 +63,7 @@ void loop1() {
 
 void setupADC(void) {
   adc_init();
+  adc_set_clkdiv(191);
   adc_gpio_init(adc_in_pin);
   adc_fifo_setup(true, false, 8, false, false);  //do not set up dma
   adc_run(true);
