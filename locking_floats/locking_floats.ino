@@ -24,7 +24,7 @@ const int test_pin_2 = 2;
 
 float filt_alpha = 0.01;
 
-float adc_accum_mult = filt_alpha / (adc_ratio * 2048 );  //output comes out 0-1
+float adc_accum_mult = filt_alpha / (adc_ratio * 65535);  //output comes out 0-1
 
 //globals
 float cos_filt;
@@ -48,6 +48,9 @@ void loop() {
     Serial.println(cos_filt * 1000);
     Serial.print("sin filtered = ");
     Serial.println(sin_filt * 1000);
+    Serial.print("mag = ");
+    Serial.println(sqrt(cos_filt*cos_filt + sin_filt*sin_filt));
+    
     em = 0;
   }
 }
@@ -63,7 +66,7 @@ void loop1() {
 
 void setupADC(void) {
   adc_init();
-  adc_set_clkdiv(191);
+  adc_set_clkdiv(400);
   adc_gpio_init(adc_in_pin);
   adc_fifo_setup(true, false, 8, false, false);  //do not set up dma
   adc_run(true);
@@ -72,8 +75,8 @@ void setupADC(void) {
 elapsedMillis em1 = 0;
 void adcLoop(void) {
   static int ctr = 0;
-  static float cos_accumulator = 0;
-  static float sin_accumulator = 0;
+  static int64_t cos_accumulator = 0;
+  static int64_t sin_accumulator = 0;
   static bool tp1 = false;
   static bool tp2 = false;
 
@@ -94,8 +97,12 @@ void adcLoop(void) {
 
   while(!(adc_fifo_is_empty())) {
     uint16_t val = adc_fifo_get() & 0xFFF;
-    cos_accumulator += val * costable_float[ctr];
-    sin_accumulator += val  * sintable_float[ctr];
+ //   cos_accumulator += val * costable_float[ctr];
+ //   sin_accumulator += val  * sintable_float[ctr];
+    //cos_accumulator += val * (ctr < 13 || ctr > 36 ? 1 : -1);
+    //sin_accumulator += val * (ctr < 24 ? 1 : -1);
+    cos_accumulator += val * costable[ctr];
+    sin_accumulator += val*sintable[ctr];
     if (++ctr >= adc_ratio) {
       ctr = 0;
       cos_filt = (1 - filt_alpha) * cos_filt + adc_accum_mult * cos_accumulator;
