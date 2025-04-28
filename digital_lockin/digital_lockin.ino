@@ -5,7 +5,7 @@
 
 #define NUM_CMD_DATA 4
 #define CHAR_BUF_SIZE 128
-
+#define VERSION 1
 
 
 typedef struct {
@@ -56,7 +56,10 @@ uint8_t adc_fifo_max_level = 0;
 int32_t adc_loop_time = 0;
 int32_t adc_loop_time_with_counter_rollover = 0;
 
-float led_mult = 100;
+float led_mult = 10;
+
+int adc_clock_divisor;
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
@@ -106,6 +109,8 @@ void sendDiagnosticReport() {
     Serial.println(vmax);
     Serial.print("vmin = ");
     Serial.println(vmin);
+    Serial.print("adc clock divisor = ");
+    Serial.println(adc_clock_divisor);
     Serial.print("max adc fifo level since last report = ");
     Serial.println(adc_fifo_max_level);
     adc_fifo_max_level = 0; 
@@ -139,10 +144,11 @@ void setupADC(void) {
 
   adc_gpio_init(adc_in_pin);
   adc_fifo_setup(true, false, 8, false, false);  //do not set up dma
-  setADCClockDiv(200);
+  setADCClockDiv(239); //base ADC frequency of 200 kHz
 }
 
 void setADCClockDiv(int div) {
+  adc_clock_divisor = div;
   adc_run(false);
   adc_set_clkdiv(div);
   adc_run(true);
@@ -159,9 +165,39 @@ void adcLoop(void) {
   static bool tp2 = false;
   static int16_t vmax_temp;
   static int16_t vmin_temp;
-
+  static int64_t ca;
+  static int64_t sa;
+  static uint8_t math_ctr = 0;
 
   if (adc_fifo_is_empty()) {
+    //spread math out over multiple steps
+    // cos_filt = (1 - filt_alpha) * cos_filt + adc_accum_mult * cos_accumulator;
+    // sin_filt = (1 - filt_alpha) * sin_filt + adc_accum_mult * sin_accumulator;
+    switch (math_ctr) {
+      case 0:
+        cos_filt = (1 - filt_alpha) * cos_filt;
+        math_ctr++;
+        return;
+        break;
+      case 1:
+        cos_filt += adc_accum_mult * ca;
+        math_ctr++;
+        return;
+        break;
+      case 2:
+        sin_filt = (1 - filt_alpha) * sin_filt;
+        math_ctr++;
+        return;
+        break;
+      case 3:
+        sin_filt += adc_accum_mult * sa;
+        math_ctr++;
+        return;
+        break;
+      default:
+      return;
+      break;
+    }
     return;
   }
   uint8_t fifo_level = adc_fifo_get_level();
@@ -177,8 +213,8 @@ void adcLoop(void) {
   adc_loop_time = emu;
   if (++ctr >= adc_ratio) {
     ctr = 0;
-    cos_filt = (1 - filt_alpha) * cos_filt + adc_accum_mult * cos_accumulator;
-    sin_filt = (1 - filt_alpha) * sin_filt + adc_accum_mult * sin_accumulator;
+    ca = cos_accumulator;
+    sa = sin_accumulator;
     cos_accumulator = 0;
     sin_accumulator = 0;
     vmax = vmax_temp;
@@ -186,6 +222,7 @@ void adcLoop(void) {
     vmax_temp = -4096;
     vmin_temp = 4096;
     adc_loop_time_with_counter_rollover = emu;
+    math_ctr = 0;
   }
   digitalWrite(output_pin, ctr < adc_ratio >> 1);
   emu = 0;
@@ -260,6 +297,7 @@ void parseCommand(CommandT c) {
   switch (toupper(c.cmd)) {
     case 'F':  //set filter alpha
       filt_alpha = c.data[0];
+      adc_accum_mult = filt_alpha / (adc_ratio * (1<<sin_table_bits));
       if (c.data[1] > 0) {
         second_filt_alpha = c.data[1];
       } else {
