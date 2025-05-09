@@ -5,7 +5,7 @@
 
 #define NUM_CMD_DATA 4
 #define CHAR_BUF_SIZE 128
-#define VERSION 1
+#define VERSION 2
 
 
 typedef struct {
@@ -143,6 +143,7 @@ void setupADC(void) {
   //refval =  2048;// analogRead(adc_ref_pin);
 
   adc_gpio_init(adc_in_pin);
+  adc_select_input(adc_in_pin - 26);
   adc_fifo_setup(true, false, 8, false, false);  //do not set up dma
   setADCClockDiv(239); //base ADC frequency of 200 kHz
 }
@@ -205,7 +206,7 @@ void adcLoop(void) {
   tp2 = !tp2;
   digitalWrite(test_pin_2, tp2);
 
-  int16_t val = ((int16_t) (adc_fifo_get() & 0xFFF)) - ((int16_t) refval);
+  int16_t val = ((int16_t) (adc_fifo_get())) - ((int16_t) refval);
   vmax_temp = vmax_temp > val ? vmax_temp : val;
   vmin_temp = vmin_temp < val ? vmin_temp : val;
   cos_accumulator += val * costable[ctr];
